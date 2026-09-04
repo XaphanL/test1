@@ -1,3 +1,17 @@
-# test1
+# Go: жмяк-шпаргалка
 
-Shared project managed through the Telegram Codex bot.
+Интерактивная русскоязычная шпаргалка по Go для быстрого повторения и подготовки к собеседованиям.
+
+## Локальный просмотр
+
+Откройте **docs/index.html** в браузере. Сборка и внешние зависимости не нужны.
+
+## GitHub Pages
+
+Workflow **.github/workflows/pages.yml** публикует содержимое **docs/** при push в ветку **main**.
+
+В репозитории откройте **Settings → Pages → Build and deployment** и выберите **Source: GitHub Actions**. После первого успешного запуска адрес будет иметь вид:
+
+    https://<github-user>.github.io/<repository>/
+
+Страница содержит поиск, фильтры, раскрывающиеся карточки, тёмную/светлую тему и локальный чек-лист прогресса.

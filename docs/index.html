@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Интерактивная шпаргалка по Go: база, ошибки, конкурентность, runtime и архитектура.">
+  <meta name="theme-color" content="#07101d">
+  <title>Go: жмяк-шпаргалка</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#content">К материалам</a>
+  <header class="hero">
+    <div class="shell">
+      <nav class="top"><a class="logo" href="#"><b>Go</b> жмяк-шпаргалка</a><div><button id="expandAll">Развернуть всё</button><button id="theme" aria-label="Сменить тему">☀️</button></div></nav>
+      <p class="eyebrow">Коротко • наглядно • для собеседования</p>
+      <h1>Go без паники<span>.</span></h1>
+      <p class="lead">Быстрый маршрут от переменной до планировщика. Найди термин или жмякни нужную карточку.</p>
+      <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Найти: context, map, mutex…" autocomplete="off"><kbd>Ctrl K</kbd></label>
+      <div class="filters" id="filters">
+        <button class="active" data-filter="all">Все</button><button data-filter="base">База</button><button data-filter="data">Данные</button>
+        <button data-filter="design">Дизайн</button><button data-filter="errors">Ошибки</button><button data-filter="concurrency">Конкурентность</button>
+        <button data-filter="runtime">Runtime</button><button data-filter="architecture">Архитектура</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="layout shell">
+    <aside><div class="sticky"><small>МАРШРУТ</small><nav id="toc"></nav><div class="progress"><span>Изучено <b id="progressText"></b></span><i><em id="progressBar"></em></i><button id="reset">Сбросить</button></div></div></aside>
+    <main id="content">
+      <p id="result" class="result" aria-live="polite"></p>
+
+      <section id="base" data-category="base" data-title="База языка">
+        <header><b>01</b><div><small>ФУНДАМЕНТ</small><h2>База языка</h2></div></header>
+        <div class="cards">
+          <details id="variables" data-keywords="переменные var const types типы zero value byte rune string utf8">
+            <summary><i>x</i><span><b>Переменные и типы</b><small>Объявление, нулевые значения, размеры</small></span></summary>
+            <article>
+<pre><code>var n int     // 0
+name := "Go"  // только внутри функции
+const max = 100</code></pre>
+              <ul><li>Переменная — имя для значения определённого типа.</li><li>Числа, bool, массивы и структуры передаются копированием.</li><li><code>int</code> — 32/64 бита; <code>byte</code> = <code>uint8</code>; <code>rune</code> = <code>int32</code>.</li><li>UTF-8: латиница обычно 1 байт, кириллица обычно 2, кодовая точка — 1–4 байта.</li></ul>
+              <p class="answer"><b>Собес:</b> Go статически типизирован, у переменной есть тип и нулевое значение.</p>
+            </article>
+          </details>
+          <details id="functions" data-keywords="функции function signature сигнатура return defer variadic first class">
+            <summary><i>ƒ</i><span><b>Функции и defer</b><small>Сигнатура и порядок выполнения</small></span></summary>
+            <article>
+<pre><code>func divide(a, b float64) (float64, error)
+defer resource.Close() // вызов при выходе, LIFO</code></pre>
+              <ul><li>Функции — значения: их можно передавать и возвращать.</li><li><code>defer</code> выполняется при return и раскрутке panic в обратном порядке.</li><li>Go передаёт всё по значению; копия иногда содержит ссылку на общие данные.</li></ul>
+            </article>
+          </details>
+          <details id="closures" data-keywords="замыкание closure capture lexical for loop goroutine">
+            <summary><i>{}</i><span><b>Замыкания</b><small>Функция помнит окружение</small></span></summary>
+            <article>
+<pre><code>func counter() func() int {
+    n := 0
+    return func() int { n++; return n }
+}</code></pre>
+              <p>Замыкание — функция вместе с захваченными переменными внешней области. Они живут, пока доступны замыканию.</p>
+              <p class="note">С Go 1.22 переменные, объявленные в заголовке <code>for</code>, создаются для каждой итерации. Явная передача <code>i</code> аргументом всё равно остаётся ясной.</p>
+            </article>
+          </details>
+        </div>
+      </section>
+
+      <section id="data" data-category="data" data-title="Коллекции">
+        <header><b>02</b><div><small>МОДЕЛЬ ДАННЫХ</small><h2>Коллекции и структуры</h2></div></header>
+        <div class="cards">
+          <details id="array" data-keywords="array массив fixed length value copy comparable">
+            <summary><i>[N]</i><span><b>Массив</b><small>Фиксированный размер, значение целиком</small></span></summary>
+            <article><pre><code>a := [3]int{10, 20, 30}
+b := a // все элементы скопированы</code></pre><ul><li>Длина входит в тип: <code>[3]int</code> и <code>[4]int</code> — разные типы.</li><li>Передача в функцию копирует массив; указатель <code>*[N]T</code> позволяет менять оригинал.</li></ul></article>
+          </details>
+          <details id="slice" data-keywords="slice слайс len cap append backing array descriptor make copy">
+            <summary><i>[]</i><span><b>Слайс</b><small>Окно над массивом: ptr + len + cap</small></span></summary>
+            <article><pre><code>s := make([]int, 2, 4)
+s = append(s, 30)</code></pre><ul><li>Копия дескриптора обычно видит тот же backing array.</li><li><code>append</code> может выделить новый массив — результат всегда присваивают.</li><li>Независимая копия: <code>clone := append([]T(nil), s...)</code>.</li></ul></article>
+          </details>
+          <details id="map" data-keywords="map мапа hash key value make nil comma ok delete clear">
+            <summary><i>K→V</i><span><b>Map</b><small>Ключ → значение, хеш-таблица</small></span></summary>
+            <article><pre><code>m := make(map[string]int)
+m["go"] = 1
+v, ok := m["go"]
+delete(m, "go")</code></pre><ul><li>Ключ должен быть сравнимым; slice и map ключами быть не могут.</li><li>Из nil map читать можно, записывать — panic: хранилище не создано.</li><li>Копии map обращаются к одной runtime-таблице. Конкурентные записи требуют синхронизации.</li></ul></article>
+          </details>
+          <details id="struct" data-keywords="struct структура fields methods tags embedding composition nested">
+            <summary><i>S</i><span><b>Структуры и композиция</b><small>Поля, методы, вложение и встраивание</small></span></summary>
+            <article><pre><code>type Service struct { repo Repository } // вложение
+type Admin struct { User }               // встраивание</code></pre><ul><li>Вложенное поле: <code>s.repo.Save()</code>.</li><li>У встроенного типа методы продвигаются: <code>admin.Rename()</code>.</li><li>Встраивание — композиция, а не наследование.</li></ul></article>
+          </details>
+          <details id="make" data-keywords="make new allocation initialization slice map channel nil">
+            <summary><i>＋</i><span><b>make и new</b><small>Инициализация против выделения значения</small></span></summary>
+            <article><pre><code>p := new(int)             // *int → 0
+s := make([]int, 0, 10)  // готовый slice
+m := make(map[string]int) // готовая map
+ch := make(chan int, 5)   // готовый channel</code></pre><p><code>new(T)</code> возвращает указатель на нулевое T. <code>make</code> применяется только к slice, map и channel и создаёт их внутреннюю структуру.</p></article>
+          </details>
+        </div>
+      </section>
+
+      <section id="design" data-category="design" data-title="Интерфейсы и ООП">
+        <header><b>03</b><div><small>GO-WAY</small><h2>Интерфейсы и дизайн</h2></div></header>
+        <div class="cards">
+          <details id="interfaces" data-keywords="interface интерфейс implicit method set polymorphism abstraction nil">
+            <summary><i>I</i><span><b>Интерфейсы</b><small>Поведение вместо данных</small></span></summary>
+            <article><pre><code>type Writer interface {
+    Write([]byte) (int, error)
+}</code></pre><ul><li>Тип реализует интерфейс неявно, если имеет нужный набор методов.</li><li>Принимай интерфейс там, где нужна подмена; возвращай конкретный тип.</li><li>Интерфейс с typed nil внутри уже не равен nil.</li></ul></article>
+          </details>
+          <details id="type-checks" data-keywords="type assertion switch утверждение типа comma ok any">
+            <summary><i>T?</i><span><b>Type assertion и type switch</b><small>Динамический тип интерфейса</small></span></summary>
+            <article><pre><code>s, ok := v.(string)
+switch x := v.(type) {
+case string: fmt.Println(len(x))
+case int:    fmt.Println(x * 2)
+}</code></pre><p>Assertion проверяет один тип; type switch выбирает из нескольких. Assertion без <code>ok</code> паникует при несовпадении.</p></article>
+          </details>
+          <details id="oop" data-keywords="ооп oop encapsulation abstraction polymorphism composition">
+            <summary><i>◇</i><span><b>ООП в Go</b><small>Без классов и наследования</small></span></summary>
+            <article><ul><li><b>Инкапсуляция:</b> экспорт определяется регистром первой буквы.</li><li><b>Абстракция:</b> интерфейсы описывают требуемое поведение.</li><li><b>Полиморфизм:</b> разные типы реализуют один интерфейс.</li><li><b>Композиция:</b> структуры содержат или встраивают типы.</li></ul></article>
+          </details>
+          <details id="api" data-keywords="api package http endpoint contract json rest grpc">
+            <summary><i>API</i><span><b>API</b><small>Контракт взаимодействия</small></span></summary>
+            <article><p>API — правила взаимодействия компонентов. В Go это экспортируемые сущности пакета, интерфейс или сетевой HTTP/gRPC-контракт.</p><pre><code>GET /users/42 → 200 {"id":42}
+POST /users   → 201 Created</code></pre><p>Хороший API стабилен, валидирует вход и скрывает детали реализации.</p></article>
+          </details>
+        </div>
+      </section>
+
+      <section id="errors" data-category="errors" data-title="Ошибки">
+        <header><b>04</b><div><small>КОНТРОЛЬ ОТКАЗОВ</small><h2>Ошибки, panic и recover</h2></div></header>
+        <div class="cards">
+          <details id="error-value" data-keywords="error errors new fmt errorf sentinel custom return">
+            <summary><i>!</i><span><b>Ошибка как значение</b><small>Создание и возврат</small></span></summary>
+            <article><pre><code>var ErrNotFound = errors.New("not found")
+if err != nil {
+    return fmt.Errorf("load user %d: %w", id, err)
+}</code></pre><p><code>error</code> — интерфейс с методом <code>Error() string</code>. Ожидаемые сбои возвращаются значением.</p></article>
+          </details>
+          <details id="error-chain" data-keywords="wrap обертка errors is as unwrap join percent w chain">
+            <summary><i>⛓</i><span><b>%w, errors.Is и errors.As</b><small>Цепочка причин</small></span></summary>
+            <article><pre><code>errors.Is(err, ErrNotFound) // конкретная причина
+var pe *os.PathError
+errors.As(err, &pe)         // ошибка нужного типа</code></pre><ul><li><code>%w</code> добавляет контекст, сохраняя причину.</li><li><code>Is</code> ищет значение/категорию; <code>As</code> — тип.</li><li><code>errors.Join</code> объединяет несколько причин.</li></ul></article>
+          </details>
+          <details id="panic" data-keywords="panic recover defer stack unwind авария">
+            <summary><i>⚡</i><span><b>panic, defer, recover</b><small>Аварийный путь</small></span></summary>
+            <article><pre><code>defer func() {
+    if v := recover(); v != nil { log.Println(v) }
+}()</code></pre><ul><li>Panic раскручивает стек и выполняет defer.</li><li>Recover работает только в отложенной функции той же горутины.</li><li>Для штатных ошибок используй <code>error</code>; recover обычно ставят на границе системы.</li></ul></article>
+          </details>
+        </div>
+      </section>
+
+      <section id="concurrency" data-category="concurrency" data-title="Конкурентность">
+        <header><b>05</b><div><small>ОДНОВРЕМЕННАЯ РАБОТА</small><h2>Горутины и каналы</h2></div></header>
+        <div class="cards">
+          <details id="goroutines" data-keywords="goroutine горутина go waitgroup lifetime leak">
+            <summary><i>go</i><span><b>Горутины</b><small>Конкурентный запуск функций</small></span></summary>
+            <article><pre><code>var wg sync.WaitGroup
+wg.Add(1)
+go func() { defer wg.Done(); work() }()
+wg.Wait()</code></pre><p>Горутина — лёгкая задача runtime. WaitGroup ждёт завершения группы, но не защищает данные и не передаёт ошибки.</p></article>
+          </details>
+          <details id="channels" data-keywords="channel канал buffered unbuffered send receive close range ownership">
+            <summary><i>→</i><span><b>Каналы</b><small>Синхронизация и передача значений</small></span></summary>
+            <article><pre><code>ch := make(chan int, 2)
+ch &lt;- 42
+v, ok := &lt;-ch
+close(ch)</code></pre><ul><li>Небуферизованный канал синхронизирует пару; буфер разъединяет её до заполнения.</li><li>Закрывает обычно отправитель. Отправка после close — panic.</li><li>Закрытый пустой канал возвращает zero value и <code>ok=false</code>.</li></ul></article>
+          </details>
+          <details id="select" data-keywords="select channels timeout default cancellation multiplexing nil">
+            <summary><i>⇄</i><span><b>select</b><small>Ожидание нескольких операций</small></span></summary>
+            <article><pre><code>select {
+case v := &lt;-data: use(v)
+case &lt;-ctx.Done(): return ctx.Err()
+case &lt;-time.After(time.Second): return ErrTimeout
+}</code></pre><p>Select ждёт готовую операцию. При нескольких готовых выбирает одну псевдослучайно; <code>default</code> делает проверку неблокирующей.</p></article>
+          </details>
+          <details id="sync" data-keywords="mutex rwmutex waitgroup once cond atomic race synchronization">
+            <summary><i>🔒</i><span><b>Синхронизация</b><small>Общая память без гонок</small></span></summary>
+            <article><ul><li><code>Mutex</code> — один владелец; <code>RWMutex</code> — читатели или один писатель.</li><li><code>WaitGroup</code> — ожидание; <code>Once</code> — однократный запуск.</li><li><code>Cond</code> — ожидание условия; <code>atomic</code> — атомарное простое состояние.</li></ul><p class="note">Проверка: <code>go test -race ./...</code>.</p></article>
+          </details>
+          <details id="patterns" data-keywords="worker pool semaphore queue backpressure fan in fan out pipeline">
+            <summary><i>⤨</i><span><b>Конкурентные паттерны</b><small>Worker pool, semaphore, pipeline</small></span></summary>
+            <article><ul><li><b>Worker pool:</b> N воркеров читают общую очередь.</li><li><b>Semaphore:</b> лимит одновременно выполняемых операций.</li><li><b>Bounded queue:</b> лимит ожидания и backpressure/отказ.</li><li><b>Fan-out:</b> один поток → несколько обработчиков.</li><li><b>Fan-in:</b> несколько потоков → один канал.</li><li><b>Pipeline:</b> выход этапа → вход следующего.</li></ul><p class="answer"><b>Главное:</b> продумать отмену, ошибки, закрытие каналов и завершение горутин.</p></article>
+          </details>
+        </div>
+      </section>
+
+      <section id="runtime" data-category="runtime" data-title="Runtime">
+        <header><b>06</b><div><small>ПОД КАПОТОМ</small><h2>Runtime и планировщик</h2></div></header>
+        <div class="cards">
+          <details id="gmp" data-keywords="gmp scheduler планировщик goroutine machine processor stealing netpoller preemption">
+            <summary><i>GMP</i><span><b>Модель G–M–P</b><small>Как запускаются горутины</small></span></summary>
+            <article><ul><li><b>G:</b> goroutine — функция, стек, состояние.</li><li><b>M:</b> machine — поток ОС.</li><li><b>P:</b> processor — ресурс runtime и локальная очередь G.</li></ul><p>M исполняет G, владея P. <code>GOMAXPROCS</code> задаёт число P. Планировщик использует локальные/глобальную очереди, work stealing, netpoller и вытеснение.</p></article>
+          </details>
+          <details id="memory" data-keywords="memory память stack heap escape analysis gc garbage collector">
+            <summary><i>MEM</i><span><b>Стек, куча и GC</b><small>Где живут значения</small></span></summary>
+            <article><p>Escape analysis решает размещение значения. Стек горутины растёт; значения с более долгим или общим временем жизни могут уйти в кучу. GC освобождает недостижимые объекты.</p><p class="note">Указатель не означает автоматическую кучу — решение принимает компилятор.</p></article>
+          </details>
+          <details id="descriptor" data-keywords="descriptor дескриптор slice string map channel interface header">
+            <summary><i>≡</i><span><b>Дескриптор</b><small>Малое описание больших данных</small></span></summary>
+            <article><p>Это не ключевое слово Go, а термин для небольшого значения, описывающего runtime-данные.</p><ul><li>Slice: указатель + len + cap.</li><li>String: указатель + длина.</li><li>Interface: динамический тип + значение.</li><li>Map/channel ссылаются на runtime-структуры.</li></ul><p>Копирование дескриптора не обязательно копирует данные за ним.</p></article>
+          </details>
+        </div>
+      </section>
+
+      <section id="architecture" data-category="architecture" data-title="Архитектура">
+        <header><b>07</b><div><small>ПРОДАКШЕН</small><h2>Контекст и архитектура</h2></div></header>
+        <div class="cards">
+          <details id="context" data-keywords="context контекст cancellation timeout deadline value done err background todo withcancel">
+            <summary><i>ctx</i><span><b>context.Context</b><small>Отмена, дедлайн, данные запроса</small></span></summary>
+            <article><pre><code>func Load(ctx context.Context, id int) error
+ctx, cancel := context.WithTimeout(parent, 2*time.Second)
+defer cancel()</code></pre><ul><li>Передаётся первым параметром, не является глобальной переменной.</li><li>Отмена родителя отменяет потомков; обратно — нет.</li><li>Горутина сама слушает <code>ctx.Done()</code>: отмена кооперативная.</li><li><code>Value</code> — для метаданных запроса, не бизнес-параметров.</li></ul></article>
+          </details>
+          <details id="graceful" data-keywords="graceful shutdown signal notifycontext server wait cleanup">
+            <summary><i>↓</i><span><b>Graceful shutdown</b><small>Завершение без потери работы</small></span></summary>
+            <article><ol><li>Поймать SIGINT/SIGTERM через <code>signal.NotifyContext</code>.</li><li>Прекратить приём новых запросов.</li><li>Отменить фоновые задачи.</li><li>Дождаться активных работ с тайм-аутом.</li><li>Закрыть ресурсы.</li></ol><p class="note">У shutdown должен быть конечный дедлайн.</p></article>
+          </details>
+          <details id="idempotency" data-keywords="idempotency идемпотентность retry duplicate key transaction payment">
+            <summary><i>1×</i><span><b>Идемпотентность</b><small>Повтор не меняет конечный эффект</small></span></summary>
+            <article><p>Повтор операции с теми же входными данными даёт тот же конечный эффект, что один вызов.</p><ul><li>Для повторяемого POST используй idempotency key.</li><li>Сохраняй ключ и результат атомарно с операцией.</li><li>Учитывай конкурентные дубликаты и срок жизни ключа.</li></ul></article>
+          </details>
+          <details id="layers" data-keywords="architecture архитектура layers clean hexagonal dependency injection repository service handler algorithm">
+            <summary><i>▤</i><span><b>Слои и зависимости</b><small>Границы важнее папок</small></span></summary>
+            <article><pre><code>HTTP handler → Service → Repository → DB
+                 ↑
+          бизнес-правила</code></pre><ul><li>Handler адаптирует транспорт; service ведёт сценарий; repository скрывает хранение.</li><li>Зависимости передаются явно, интерфейс обычно объявляет потребитель.</li><li>Алгоритм — шаги решения; реализация — конкретный код и технологии.</li></ul></article>
+          </details>
+        </div>
+      </section>
+
+      <section class="checklist" id="checklist">
+        <div><small>ФИНАЛЬНАЯ ПРОВЕРКА</small><h2>Перед собеседованием</h2></div>
+        <div>
+          <label><input type="checkbox" data-progress="values">Понимаю семантику значений</label>
+          <label><input type="checkbox" data-progress="errors">Объясню %w, Is и As</label>
+          <label><input type="checkbox" data-progress="channels">Знаю блокировки каналов</label>
+          <label><input type="checkbox" data-progress="sync">Отличаю WaitGroup от Mutex</label>
+          <label><input type="checkbox" data-progress="context">Передаю context и слушаю Done</label>
+          <label><input type="checkbox" data-progress="gmp">Могу разложить G–M–P</label>
+        </div>
+      </section>
+      <p id="empty" class="empty" hidden>Ничего не найдено. Попробуй более короткий запрос.</p>
+    </main>
+  </div>
+  <footer><div class="shell"><span>Сделано для быстрых жмяков по Go.</span><a href="#">Наверх ↑</a></div></footer>
+</body>
+</html>
