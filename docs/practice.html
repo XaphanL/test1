@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Практические задачи по горутинам, каналам и конкурентности в Go с решениями.">
+  <meta name="theme-color" content="#07101d">
+  <title>Go: тренажёр по конкурентности</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body data-page="practice">
+  <a class="skip" href="#content">К задачам</a>
+  <header class="hero practice-page-hero">
+    <div class="shell">
+      <nav class="top"><a class="logo" href="index.html"><b>Go</b> жмяк-шпаргалка</a><div><a class="tab-link active" href="practice.html">Практика</a><button id="expandAll">Развернуть всё</button><button id="theme" aria-label="Сменить тему">☀️</button></div></nav>
+      <p class="eyebrow">ПРАКТИКА • ГОРУТИНЫ • КАНАЛЫ</p>
+      <h1>Concurrency lab<span>.</span></h1>
+      <p class="lead">10 задач от первого <code>go</code> до worker pool, fan-in и отменяемого pipeline. Сначала реши сама, затем открой ответ.</p>
+      <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Найти: WaitGroup, semaphore, pipeline…" autocomplete="off"><kbd>Ctrl K</kbd></label>
+      <div class="filters" id="filters"><button class="active" data-filter="all">Все задачи</button><a class="filter-link" href="index.html#concurrency">Теория конкурентности</a></div>
+    </div>
+  </header>
+  <div class="layout shell">
+    <aside><div class="sticky"><small>ЗАДАЧИ</small><nav id="toc"></nav><div class="progress"><span>Решено <b id="progressText"></b></span><i><em id="progressBar"></em></i><button id="reset">Сбросить</button></div></div></aside>
+    <main id="content">
+      <p id="result" class="result" aria-live="polite"></p>
+      <section id="concurrency-practice" data-category="practice" data-title="10 задач">
+        <header><b>01–10</b><div><small>ТРЕНАЖЁР</small><h2>Горутины и синхронизация</h2></div></header>
+        <div class="practice-intro">
+          <img src="assets/concurrency-lab.png" alt="Задания распределяются между воркерами и объединяются в поток результатов">
+          <div><h3>Как думать над задачей</h3><ol><li>Нарисуй горутины и каналы стрелками.</li><li>Для каждой операции спроси: она может заблокироваться?</li><li>Определи владельца <code>close</code>.</li><li>Продумай отмену и условие завершения.</li></ol></div>
+        </div>
+        <div class="cards practice-cards">
+          <details id="task-01" data-keywords="горутина waitgroup add done wait запуск ожидание">
+            <summary><i>01</i><span><b>Запуск и ожидание горутин</b><small>go + sync.WaitGroup</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Запусти три вызова <code>work</code> конкурентно и дождись каждого. Порядок вывода не фиксирован.</p>
+<pre><code>func work(id int) { fmt.Println("worker", id) }
+
+func main() {
+    // work(1), work(2), work(3) конкурентно
+}</code></pre>
+              <ul><li><code>Add</code> должен выполняться до запуска горутины.</li><li>Каждый worker обязан сообщить о завершении.</li></ul>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>var wg sync.WaitGroup
+for i := 1; i &lt;= 3; i++ {
+    wg.Add(1)
+    go func(id int) {
+        defer wg.Done()
+        work(id)
+    }(i)
+}
+wg.Wait()</code></pre><p><b>Почему:</b> <code>Wait</code> блокирует <code>main</code>, пока счётчик не станет нулём. WaitGroup ждёт выполнение, но не защищает общие данные.</p></div>
+            </article>
+          </details>
+          <details id="task-02" data-keywords="канал channel send receive square результат небуферизованный">
+            <summary><i>02</i><span><b>Результат через канал</b><small>Небуферизованный channel</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Вычисли квадрат числа в горутине и передай результат в <code>main</code> через канал.</p>
+<pre><code>func square(n int, out chan&lt;- int) {
+    // отправь n * n
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func square(n int, out chan&lt;- int) { out &lt;- n * n }
+
+result := make(chan int)
+go square(7, result)
+fmt.Println(&lt;-result) // 49</code></pre><p><b>Почему:</b> send и receive на небуферизованном канале встречаются и синхронизируют две горутины. Для одного чтения закрывать канал необязательно.</p></div>
+            </article>
+          </details>
+          <details id="task-03" data-keywords="close range channel producer consumer закрытие канал владелец">
+            <summary><i>03</i><span><b>Кто закрывает канал?</b><small>close + range</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Producer отправляет числа 1…5. Consumer читает их через <code>range</code> и должен завершиться.</p>
+<pre><code>func produce(out chan&lt;- int) {
+    for i := 1; i &lt;= 5; i++ { out &lt;- i }
+    // чего не хватает?
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func produce(out chan&lt;- int) {
+    defer close(out)
+    for i := 1; i &lt;= 5; i++ { out &lt;- i }
+}
+
+ch := make(chan int)
+go produce(ch)
+for v := range ch { fmt.Println(v) }</code></pre><p><b>Почему:</b> канал закрывает отправитель — именно он знает, что новых значений не будет. <code>range</code> дочитает буфер и завершится.</p></div>
+            </article>
+          </details>
+          <details id="task-04" data-keywords="buffer buffered backpressure очередь канал capacity буфер">
+            <summary><i>04</i><span><b>Буфер и backpressure</b><small>Ограниченная очередь</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Создай очередь максимум на три задания. Если consumer отстаёт, producer должен ждать.</p>
+<pre><code>type Job struct{ ID int }
+jobs := make(chan Job, /* размер */)</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>jobs := make(chan Job, 3)
+go func() {
+    defer close(jobs)
+    for i := 1; i &lt;= 10; i++ {
+        jobs &lt;- Job{ID: i}
+    }
+}()
+for job := range jobs { handle(job) }</code></pre><p><b>Почему:</b> пока в буфере есть место, producer идёт дальше. Когда три места заняты, следующий send ждёт consumer — это естественное обратное давление.</p></div>
+            </article>
+          </details>
+          <details id="task-05" data-keywords="select timeout timer newtimer default ожидание таймаут">
+            <summary><i>05</i><span><b>Ожидание через select</b><small>Результат или timeout</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Получи результат, но не жди дольше 500 мс. Таймер должен корректно освобождаться.</p>
+<pre><code>func wait(result &lt;-chan string) {
+    // result или timeout
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func wait(result &lt;-chan string) {
+    timer := time.NewTimer(500 * time.Millisecond)
+    defer timer.Stop()
+    select {
+    case v := &lt;-result:
+        fmt.Println(v)
+    case &lt;-timer.C:
+        fmt.Println("timeout")
+    }
+}</code></pre><p><b>Почему:</b> <code>select</code> ждёт готовый case. <code>default</code> здесь не нужен: в цикле он создал бы активное ожидание и нагрузку на CPU.</p></div>
+            </article>
+          </details>
+          <details id="task-06" data-keywords="context cancel done cancellation worker закрытие jobs ok">
+            <summary><i>06</i><span><b>Отмена через context</b><small>Управление жизненным циклом</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Worker обрабатывает задания, пока не отменён context или не закрыт входной канал.</p>
+<pre><code>func worker(ctx context.Context, jobs &lt;-chan Job) {
+    for { /* жди ctx.Done() или jobs */ }
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func worker(ctx context.Context, jobs &lt;-chan Job) {
+    for {
+        select {
+        case &lt;-ctx.Done():
+            return
+        case job, ok := &lt;-jobs:
+            if !ok { return }
+            handle(job)
+        }
+    }
+}</code></pre><p><b>Почему:</b> <code>ctx.Done()</code> закрывается при отмене. Проверка <code>ok</code> не даёт бесконечно читать zero value из закрытого канала.</p></div>
+            </article>
+          </details>
+          <details id="task-07" data-keywords="worker pool пул воркеров waitgroup jobs results close">
+            <summary><i>07</i><span><b>Фиксированный worker pool</b><small>Четыре постоянных worker</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Обработай 100 задач максимум четырьмя workers и собери результаты. <code>results</code> закрой только после завершения всех отправителей.</p>
+<pre><code>func worker(jobs &lt;-chan Job, results chan&lt;- Result) {
+    for job := range jobs { results &lt;- process(job) }
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>jobs := make(chan Job)
+results := make(chan Result)
+var wg sync.WaitGroup
+for i := 0; i &lt; 4; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        worker(jobs, results)
+    }()
+}
+go func() { wg.Wait(); close(results) }()
+go func() { defer close(jobs); sendJobs(jobs) }()
+for r := range results { save(r) }</code></pre><p><b>Почему:</b> четыре workers задают лимит активной обработки. Отдельная closer-горутина ждёт всех отправителей, пока <code>main</code> одновременно читает результаты.</p></div>
+            </article>
+          </details>
+          <details id="task-08" data-keywords="semaphore семафор лимит параллелизм chan struct waitgroup fetch">
+            <summary><i>08</i><span><b>Лимит через семафор</b><small>Не более пяти операций</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Для каждого URL запусти горутину, но разреши одновременно выполнять максимум пять запросов.</p>
+<pre><code>func fetchAll(urls []string) {
+    sem := make(chan struct{}, /* лимит */)
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func fetchAll(urls []string) {
+    sem := make(chan struct{}, 5)
+    var wg sync.WaitGroup
+    for _, url := range urls {
+        wg.Add(1)
+        go func(u string) {
+            defer wg.Done()
+            sem &lt;- struct{}{}
+            defer func() { &lt;-sem }()
+            fetch(u)
+        }(url)
+    }
+    wg.Wait()
+}</code></pre><p><b>Почему:</b> шестая горутина ждёт свободный слот. В отличие от worker pool, горутин может быть много, но одновременно выполняется не больше пяти запросов.</p></div>
+            </article>
+          </details>
+          <details id="task-09" data-keywords="fan-in fan in merge объединение потоков channels waitgroup copier">
+            <summary><i>09</i><span><b>Объединение потоков fan-in</b><small>Несколько входов → один выход</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Объедини произвольное число входных каналов в один. Закрой выход после исчерпания всех входов.</p>
+<pre><code>func merge(inputs ...&lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    // copier для каждого input
+    return out
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func merge(inputs ...&lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    var wg sync.WaitGroup
+    wg.Add(len(inputs))
+    for _, in := range inputs {
+        go func(ch &lt;-chan int) {
+            defer wg.Done()
+            for v := range ch { out &lt;- v }
+        }(in)
+    }
+    go func() { wg.Wait(); close(out) }()
+    return out
+}</code></pre><p><b>Почему:</b> отдельный copier читает каждый источник. Порядок между источниками не гарантирован, а выход закрывается ровно после последнего copier.</p></div>
+            </article>
+          </details>
+          <details id="task-10" data-keywords="pipeline конвейер context cancel leak утечка send receive square">
+            <summary><i>10</i><span><b>Безопасный pipeline</b><small>Отмена без утечки горутин</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Построй стадию <code>square</code>. Если sink прекратил чтение, context должен разблокировать и чтение, и отправку результата.</p>
+<pre><code>func square(ctx context.Context, in &lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    // стадия pipeline
+    return out
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func square(ctx context.Context, in &lt;-chan int) &lt;-chan int {
+    out := make(chan int)
+    go func() {
+        defer close(out)
+        for {
+            select {
+            case &lt;-ctx.Done():
+                return
+            case v, ok := &lt;-in:
+                if !ok { return }
+                select {
+                case out &lt;- v * v:
+                case &lt;-ctx.Done(): return
+                }
+            }
+        }
+    }()
+    return out
+}</code></pre><p><b>Почему:</b> проверять отмену нужно и вокруг потенциально блокирующего send. Стадия владеет своим <code>out</code> и закрывает его при завершении.</p></div>
+            </article>
+          </details>
+        </div>
+      </section>
+      <section class="checklist" id="checklist"><div><small>ПРОВЕРКА</small><h2>Что уже умею</h2></div><div>
+        <label><input type="checkbox" data-progress="wg">WaitGroup</label>
+        <label><input type="checkbox" data-progress="channels">Каналы и close</label>
+        <label><input type="checkbox" data-progress="select">select и context</label>
+        <label><input type="checkbox" data-progress="pool">Worker pool</label>
+        <label><input type="checkbox" data-progress="fanin">Fan-in</label>
+        <label><input type="checkbox" data-progress="pipeline">Pipeline без утечек</label>
+      </div></section>
+      <p id="empty" class="empty" hidden>Ничего не найдено. Попробуй более короткий запрос.</p>
+    </main>
+  </div>
+  <footer><div class="shell"><span>Практика по конкурентности Go.</span><a href="#">Наверх ↑</a></div></footer>
+</body>
+</html>

@@ -5,7 +5,8 @@ const result=document.querySelector('#result');
 const empty=document.querySelector('#empty');
 const filterButtons=[...document.querySelectorAll('[data-filter]')];
 const checks=[...document.querySelectorAll('[data-progress]')];
-const keys={theme:'go-sheet-theme',progress:'go-sheet-progress'};
+const page=document.body.dataset.page||'sheet';
+const keys={theme:'go-sheet-theme',progress:`go-${page}-progress`};
 let activeFilter='all';
 const normalize=value=>value.toLocaleLowerCase('ru').replaceAll('ё','е').trim();
 
@@ -69,6 +70,13 @@ document.querySelector('#expandAll').addEventListener('click',event=>{
 });
 checks.forEach(box=>box.addEventListener('change',renderProgress));
 document.querySelector('#reset').addEventListener('click',()=>{checks.forEach(box=>box.checked=false);renderProgress()});
+document.querySelectorAll('.solution-toggle').forEach(button=>button.addEventListener('click',()=>{
+  const solution=button.nextElementSibling;
+  const open=solution.hidden;
+  solution.hidden=!open;
+  button.setAttribute('aria-expanded',String(open));
+  button.textContent=open?'Скрыть решение':'Показать решение';
+}));
 document.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){event.preventDefault();search.focus()}
   if(event.key==='Escape'&&document.activeElement===search){search.value='';search.blur();filterContent()}
