@@ -16,7 +16,7 @@
       <nav class="top"><a class="logo" href="index.html"><b>Go</b> жмяк-шпаргалка</a><div><a class="tab-link active" href="practice.html">Практика</a><button id="expandAll">Развернуть всё</button><button id="theme" aria-label="Сменить тему">☀️</button></div></nav>
       <p class="eyebrow">ПРАКТИКА • ГОРУТИНЫ • КАНАЛЫ</p>
       <h1>Concurrency lab<span>.</span></h1>
-      <p class="lead">10 задач от первого <code>go</code> до worker pool, fan-in и отменяемого pipeline. Сначала реши сама, затем открой ответ.</p>
+      <p class="lead">20 задач: от первого <code>go</code> до worker pool, атомиков, блокировок и безопасного завершения. Сначала реши сама, затем открой ответ.</p>
       <label class="search"><span>⌕</span><input id="search" type="search" placeholder="Найти: WaitGroup, semaphore, pipeline…" autocomplete="off"><kbd>Ctrl K</kbd></label>
       <div class="filters" id="filters"><button class="active" data-filter="all">Все задачи</button><a class="filter-link" href="index.html#concurrency">Теория конкурентности</a></div>
     </div>
@@ -25,7 +25,7 @@
     <aside><div class="sticky"><small>ЗАДАЧИ</small><nav id="toc"></nav><div class="progress"><span>Решено <b id="progressText"></b></span><i><em id="progressBar"></em></i><button id="reset">Сбросить</button></div></div></aside>
     <main id="content">
       <p id="result" class="result" aria-live="polite"></p>
-      <section id="concurrency-practice" data-category="practice" data-title="10 задач">
+      <section id="concurrency-practice" data-category="practice" data-title="База: 10 задач">
         <header><b>01–10</b><div><small>ТРЕНАЖЁР</small><h2>Горутины и синхронизация</h2></div></header>
         <div class="practice-intro">
           <img src="assets/concurrency-lab.png" alt="Задания распределяются между воркерами и объединяются в поток результатов">
@@ -241,6 +241,253 @@ for r := range results { save(r) }</code></pre><p><b>Почему:</b> четы�
           </details>
         </div>
       </section>
+      <section id="sync-practice" data-category="practice" data-title="Sync: 10 задач">
+        <header><b>11–20</b><div><small>УРОВЕНЬ 2</small><h2>Каналы и пакет sync</h2></div></header>
+        <div class="practice-intro">
+          <img src="assets/sync-lab.png" alt="Горутины синхронно работают с защищённым общим состоянием">
+          <div><h3>Как выбрать примитив</h3><ol><li>Канал — передача данных и владения.</li><li>Mutex — составное изменяемое состояние.</li><li>Atomic — независимое простое значение.</li><li>WaitGroup — ожидание фактического завершения.</li></ol></div>
+        </div>
+        <div class="cards practice-cards">
+          <details id="task-11" data-keywords="mutex waitgroup counter race счётчик блокировка">
+            <summary><i>11</i><span><b>Счётчик под Mutex</b><small>Mutex + WaitGroup</small></span></summary>
+            <article><p class="task-label">Условие</p><p>100 горутин увеличивают общий счётчик по 1000 раз. Получи строго 100000 без data race.</p>
+<pre><code>var counter int
+// 100 goroutine: counter++</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>var counter int
+var mu sync.Mutex
+var wg sync.WaitGroup
+for i := 0; i &lt; 100; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for j := 0; j &lt; 1000; j++ {
+            mu.Lock(); counter++; mu.Unlock()
+        }
+    }()
+}
+wg.Wait()
+fmt.Println(counter)</code></pre><p><b>Почему:</b> Mutex делает изменение взаимоисключающим, а WaitGroup гарантирует чтение после всех записей. Это разные задачи синхронизации.</p></div></article>
+          </details>
+          <details id="task-12" data-keywords="atomic int64 channel worker counter счётчик waitgroup">
+            <summary><i>12</i><span><b>Счётчик через atomic</b><small>atomic.Int64 + channel</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Workers читают <code>jobs</code>. Посчитай число обработанных заданий без Mutex и дождись всех workers.</p>
+<pre><code>var processed atomic.Int64
+jobs := make(chan Job)</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>var wg sync.WaitGroup
+for i := 0; i &lt; 4; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for job := range jobs {
+            handle(job)
+            processed.Add(1)
+        }
+    }()
+}
+sendJobs(jobs); close(jobs)
+wg.Wait()
+fmt.Println(processed.Load())</code></pre><p><b>Почему:</b> <code>Add</code> — атомарный read-modify-write. Atomic подходит для независимого числа, но не для нескольких связанных полей.</p></div></article>
+          </details>
+          <details id="task-13" data-keywords="map channel ownership aggregator waitgroup владелец состояния">
+            <summary><i>13</i><span><b>Один владелец map</b><small>Channel ownership</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Несколько producers создают события. Одна goroutine должна собрать частоты в map без Mutex.</p>
+<pre><code>events := make(chan string)
+// producers → aggregator → result</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>result := make(chan map[string]int, 1)
+go func() {
+    counts := make(map[string]int)
+    for e := range events { counts[e]++ }
+    result &lt;- counts
+}()
+for _, src := range sources {
+    wg.Add(1)
+    go func(s Source) {
+        defer wg.Done(); s.Send(events)
+    }(src)
+}
+go func() { wg.Wait(); close(events) }()
+counts := &lt;-result</code></pre><p><b>Почему:</b> map принадлежит только aggregator. WaitGroup определяет момент закрытия общего канала событий.</p></div></article>
+          </details>
+          <details id="task-14" data-keywords="rwmutex cache readers writer rlock lock map">
+            <summary><i>14</i><span><b>Кэш под RWMutex</b><small>Много readers, один writer</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Много goroutine читают кэш, одна обновляет его из канала. Сделай <code>Get</code> и <code>Set</code> безопасными.</p>
+<pre><code>type Cache struct {
+    mu sync.RWMutex
+    m  map[string]string
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func (c *Cache) Get(k string) (string, bool) {
+    c.mu.RLock(); defer c.mu.RUnlock()
+    v, ok := c.m[k]
+    return v, ok
+}
+func (c *Cache) Set(k, v string) {
+    c.mu.Lock(); defer c.mu.Unlock()
+    c.m[k] = v
+}
+func NewCache() *Cache {
+    return &amp;Cache{m: make(map[string]string)}
+}</code></pre><p><b>Почему:</b> <code>RLock</code> допускает параллельных читателей, обычный <code>Lock</code> исключает всех на время записи, а конструктор создаёт map до первого <code>Set</code>.</p></div></article>
+          </details>
+          <details id="task-15" data-keywords="sync once initialization config load channel waitgroup">
+            <summary><i>15</i><span><b>Инициализация через Once</b><small>sync.Once + goroutines</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Десять горутин запрашивают конфигурацию. Дорогая загрузка должна выполниться ровно один раз.</p>
+<pre><code>type Loader struct {
+    once sync.Once
+    cfg Config
+    err error
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func (l *Loader) Get() (Config, error) {
+    l.once.Do(func() {
+        l.cfg, l.err = loadConfig()
+    })
+    return l.cfg, l.err
+}
+
+results := make(chan Config, 10)
+for i := 0; i &lt; 10; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        cfg, _ := loader.Get(); results &lt;- cfg
+    }()
+}
+wg.Wait(); close(results)</code></pre><p><b>Почему:</b> <code>Once</code> публикует результат загрузки всем конкурентным вызывающим. Сохранять нужно и значение, и ошибку.</p></div></article>
+          </details>
+          <details id="task-16" data-keywords="atomic bool flag stopped channel worker lifecycle context">
+            <summary><i>16</i><span><b>Флаг atomic.Bool</b><small>Состояние ≠ жизненный цикл</small></span></summary>
+            <article><p class="task-label">Условие</p><p>После критической ошибки workers должны пропускать новые jobs. Используй атомарный флаг и корректно заверши workers.</p>
+<pre><code>var stopped atomic.Bool
+jobs := make(chan Job)</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>for i := 0; i &lt; 4; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for job := range jobs {
+            if stopped.Load() { continue }
+            if handle(job) != nil { stopped.Store(true) }
+        }
+    }()
+}
+sendJobs(jobs); close(jobs)
+wg.Wait()</code></pre><p><b>Почему:</b> atomic убирает race на флаге, но не закрывает канал и не прерывает I/O. Для немедленной отмены нужен <code>context</code>.</p></div></article>
+          </details>
+          <details id="task-17" data-keywords="sync cond condition mutex queue wait signal очередь">
+            <summary><i>17</i><span><b>Очередь через sync.Cond</b><small>Wait + Signal + Mutex</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Реализуй очередь: <code>Take</code> блокируется, пока producer не добавит элемент через <code>Put</code>.</p>
+<pre><code>type Queue struct {
+    mu sync.Mutex
+    ready *sync.Cond
+    items []int
+}</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func NewQueue() *Queue {
+    q := &amp;Queue{}
+    q.ready = sync.NewCond(&amp;q.mu)
+    return q
+}
+func (q *Queue) Put(v int) {
+    q.mu.Lock()
+    q.items = append(q.items, v)
+    q.ready.Signal()
+    q.mu.Unlock()
+}
+func (q *Queue) Take() int {
+    q.mu.Lock(); defer q.mu.Unlock()
+    for len(q.items) == 0 { q.ready.Wait() }
+    v := q.items[0]; q.items = q.items[1:]
+    return v
+}</code></pre><p><b>Почему:</b> <code>Wait</code> атомарно отпускает lock и снова захватывает его после пробуждения. Условие проверяется в цикле.</p></div></article>
+          </details>
+          <details id="task-18" data-keywords="atomic pointer config snapshot immutable channel updater lock free">
+            <summary><i>18</i><span><b>Конфиг через atomic.Pointer</b><small>Lock-free чтение snapshot</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Readers часто читают неизменяемый <code>Config</code>, updater получает новые версии из канала. Чтение должно быть без Mutex.</p>
+<pre><code>var current atomic.Pointer[Config]
+// updates - канал новых Config</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>current.Store(&amp;Config{Timeout: time.Second})
+wg.Add(1)
+go func() {
+    defer wg.Done()
+    for cfg := range updates {
+        next := cfg
+        current.Store(&amp;next)
+    }
+}()
+
+cfg := current.Load()
+use(cfg.Timeout)
+close(updates); wg.Wait()</code></pre><p><b>Почему:</b> атомарно заменяется указатель на полностью созданный snapshot. После публикации объект нельзя изменять.</p></div></article>
+          </details>
+          <details id="task-19" data-keywords="worker pool atomic mutex errors results waitgroup channel">
+            <summary><i>19</i><span><b>Пул: atomic + Mutex</b><small>Разным данным — разные примитивы</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Worker pool считает успехи атомарно, складывает ошибки в общий slice под Mutex и отдаёт результаты через канал.</p>
+<pre><code>var okCount atomic.Int64
+var mu sync.Mutex
+var errs []error</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>for i := 0; i &lt; workers; i++ {
+    wg.Add(1)
+    go func() {
+        defer wg.Done()
+        for job := range jobs {
+            r, err := process(job)
+            if err != nil {
+                mu.Lock()
+                errs = append(errs, err)
+                mu.Unlock()
+                continue
+            }
+            okCount.Add(1)
+            results &lt;- r
+        }
+    }()
+}
+go func() { wg.Wait(); close(results) }()
+for r := range results { save(r) }</code></pre><p><b>Почему:</b> atomic подходит независимому числу, Mutex — составному slice. Канал закрывается после завершения всех отправителей.</p></div></article>
+          </details>
+          <details id="task-20" data-keywords="context cancel lifecycle graceful atomic mutex waitgroup service shutdown">
+            <summary><i>20</i><span><b>Завершение всей системы</b><small>Context + atomic + Mutex + WaitGroup</small></span></summary>
+            <article><p class="task-label">Условие</p><p>Сервис обрабатывает jobs четырьмя workers, считает активные операции атомарно и статистику под Mutex. По cancel всё должно завершиться.</p>
+<pre><code>type Stats struct {
+    mu sync.Mutex
+    byType map[string]int
+}
+func Run(ctx context.Context, jobs &lt;-chan Job)</code></pre>
+              <button class="solution-toggle" aria-expanded="false">Показать решение</button><div class="practice-solution" hidden><p class="task-label">Решение</p>
+<pre><code>func Run(ctx context.Context, jobs &lt;-chan Job) {
+    var wg sync.WaitGroup
+    var active atomic.Int64
+    stats := Stats{byType: make(map[string]int)}
+    for i := 0; i &lt; 4; i++ {
+        wg.Add(1)
+        go func() {
+            defer wg.Done()
+            for {
+                select {
+                case &lt;-ctx.Done(): return
+                case job, ok := &lt;-jobs:
+                    if !ok { return }
+                    active.Add(1)
+                    kind := process(ctx, job)
+                    active.Add(-1)
+                    stats.mu.Lock()
+                    stats.byType[kind]++
+                    stats.mu.Unlock()
+                }
+            }
+        }()
+    }
+    wg.Wait()
+}</code></pre><p><b>Почему:</b> context просит workers остановиться, WaitGroup подтверждает их выход, atomic хранит независимый счётчик, а Mutex защищает map. Сама <code>process</code> тоже должна учитывать context.</p></div></article>
+          </details>
+        </div>
+      </section>
       <section class="checklist" id="checklist"><div><small>ПРОВЕРКА</small><h2>Что уже умею</h2></div><div>
         <label><input type="checkbox" data-progress="wg">WaitGroup</label>
         <label><input type="checkbox" data-progress="channels">Каналы и close</label>
@@ -248,6 +495,10 @@ for r := range results { save(r) }</code></pre><p><b>Почему:</b> четы�
         <label><input type="checkbox" data-progress="pool">Worker pool</label>
         <label><input type="checkbox" data-progress="fanin">Fan-in</label>
         <label><input type="checkbox" data-progress="pipeline">Pipeline без утечек</label>
+        <label><input type="checkbox" data-progress="mutex">Mutex и RWMutex</label>
+        <label><input type="checkbox" data-progress="atomic">Atomic-типы</label>
+        <label><input type="checkbox" data-progress="once-cond">Once и Cond</label>
+        <label><input type="checkbox" data-progress="lifecycle">Общий lifecycle</label>
       </div></section>
       <p id="empty" class="empty" hidden>Ничего не найдено. Попробуй более короткий запрос.</p>
     </main>

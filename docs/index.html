@@ -188,6 +188,23 @@ case &lt;-time.After(time.Second): return ErrTimeout
             <summary><i>⤨</i><span><b>Конкурентные паттерны</b><small>Worker pool, semaphore, pipeline</small></span></summary>
             <article><ul><li><b>Worker pool:</b> N воркеров читают общую очередь.</li><li><b>Semaphore:</b> лимит одновременно выполняемых операций.</li><li><b>Bounded queue:</b> лимит ожидания и backpressure/отказ.</li><li><b>Fan-out:</b> один поток → несколько обработчиков.</li><li><b>Fan-in:</b> несколько потоков → один канал.</li><li><b>Pipeline:</b> выход этапа → вход следующего.</li></ul><p class="answer"><b>Главное:</b> продумать отмену, ошибки, закрытие каналов и завершение горутин.</p></article>
           </details>
+          <details id="sync-pool" data-keywords="sync pool reuse переиспользование temporary objects buffer get put new gc worker pool">
+            <summary><i>♻</i><span><b>sync.Pool</b><small>Переиспользование временных объектов</small></span></summary>
+            <article>
+<pre><code>var buffers = sync.Pool{
+    New: func() any { return new(bytes.Buffer) },
+}
+
+buf := buffers.Get().(*bytes.Buffer)
+buf.Reset()
+defer func() {
+    buf.Reset()
+    if buf.Cap() &lt; 64&lt;&lt;10 { buffers.Put(buf) }
+}()</code></pre>
+              <ul><li><code>Get</code> берёт произвольный объект или вызывает <code>New</code>; <code>Put</code> возвращает объект для возможного переиспользования.</li><li>Pool безопасен для конкурентного использования, но после начала работы его нельзя копировать.</li><li>Runtime может удалить элементы в любой момент: в Pool нельзя хранить обязательное состояние или ограниченный ресурс.</li><li>Это не worker pool: <code>sync.Pool</code> переиспользует объекты, worker pool — горутины и лимит выполнения.</li></ul>
+              <p class="answer"><b>Применение:</b> временные буферы и объекты с высокой частотой создания. Всегда сбрасывай состояние перед повторным использованием.</p>
+            </article>
+          </details>
         </div>
       </section>
 
@@ -217,6 +234,32 @@ case &lt;-time.After(time.Second): return ErrTimeout
             <article><pre><code>func Load(ctx context.Context, id int) error
 ctx, cancel := context.WithTimeout(parent, 2*time.Second)
 defer cancel()</code></pre><ul><li>Передаётся первым параметром, не является глобальной переменной.</li><li>Отмена родителя отменяет потомков; обратно — нет.</li><li>Горутина сама слушает <code>ctx.Done()</code>: отмена кооперативная.</li><li><code>Value</code> — для метаданных запроса, не бизнес-параметров.</li></ul></article>
+          </details>
+          <details id="context-internals" data-keywords="context internals внутрянка cancelctx timerctx valuectx emptyctx children done atomic cause tree">
+            <summary><i>ctx↓</i><span><b>Внутреннее устройство context</b><small>Цепочка обёрток и дерево отмены</small></span></summary>
+            <article>
+<pre><code>type Context interface {
+    Deadline() (time.Time, bool)
+    Done() &lt;-chan struct{}
+    Err() error
+    Value(key any) any
+}</code></pre>
+              <p>Интерфейс ничего не хранит сам. Функции <code>With…</code> создают связанные обёртки:</p>
+<pre><code>backgroundCtx
+  └─ valueCtx(key, value)
+      └─ cancelCtx
+          └─ timerCtx(deadline)</code></pre>
+              <ul><li><code>emptyCtx</code> не отменяется: <code>Done() == nil</code>, дедлайна и значений нет.</li><li><code>valueCtx</code> хранит одну пару key/value; поиск идёт вверх по цепочке родителей.</li><li><code>cancelCtx</code> хранит ленивый канал <code>done</code>, ошибку, причину и множество отменяемых детей.</li><li><code>timerCtx</code> встраивает <code>cancelCtx</code> и добавляет таймер с дедлайном.</li></ul>
+<pre><code>cancel()
+  → записать Err и Cause
+  → закрыть Done
+  → отменить детей
+  → удалить себя из родителя</code></pre>
+              <p class="note"><code>cancel</code> не убивает и не ждёт горутины. Он закрывает канал-сигнал; работа должна сама выбрать <code>&lt;-ctx.Done()</code> и выйти.</p>
+              <ul><li><code>Done</code> создаётся лениво при первом обращении.</li><li><code>WithTimeout(parent, d)</code> создаёт дедлайн около <code>time.Now().Add(d)</code>.</li><li>Родитель удерживает ребёнка, поэтому <code>CancelFunc</code> вызывают и при успешном раннем завершении.</li><li><code>WithoutCancel</code> сохраняет values, но убирает дедлайн, ошибку и распространение отмены.</li></ul>
+              <p class="answer"><b>Собес:</b> context — неизменяемая цепочка значений и дерево отмены. Закрытие <code>Done</code> распространяется вниз, но остановка работы остаётся кооперативной.</p>
+              <p><a href="https://go.dev/src/context/context.go" target="_blank" rel="noreferrer">Открыть актуальный исходник context.go ↗</a></p>
+            </article>
           </details>
           <details id="graceful" data-keywords="graceful shutdown signal notifycontext server wait cleanup">
             <summary><i>↓</i><span><b>Graceful shutdown</b><small>Завершение без потери работы</small></span></summary>
